@@ -86,25 +86,49 @@ pub fn main() !void {
 }
 
 fn addEntry(database: *Database, args: []const []const u8) !void {
-    // Quick add: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes]
-    if (args.len < 6) {
+    // Quick add: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]
+    const images = parseFlagValue(args, "--images") catch |err| switch (err) {
+        error.MissingFlagValue => {
+            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]\n", .{});
+            return;
+        },
+        else => return err,
+    };
+
+    var positional: std.ArrayList([]const u8) = .empty;
+    defer positional.deinit(database.allocator);
+
+    var i: usize = 2;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--images")) {
+            if (i + 1 >= args.len) {
+                std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]\n", .{});
+                return;
+            }
+            i += 1;
+            continue;
+        }
+        try positional.append(database.allocator, args[i]);
+    }
+
+    if (positional.items.len < 5) {
         std.debug.print(
-            \\nUsage: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes]
-            \\nExample: food-journal add "Chicken Breast" 165 31 0 3.6 0 lunch "Grilled, 100g"
+            \\nUsage: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]
+            \\nExample: food-journal add "Chicken Breast" 165 31 0 3.6 0 lunch "Grilled, 100g" --images "front.jpg,back.jpg"
             \\nMeal types: breakfast, lunch, dinner, snack, other (default: other)
             \\n
         , .{});
         return;
     }
 
-    const name = args[2];
-    const calories = try std.fmt.parseFloat(f64, args[3]);
-    const protein = try std.fmt.parseFloat(f64, args[4]);
-    const carbs = try std.fmt.parseFloat(f64, args[5]);
-    const fat = try std.fmt.parseFloat(f64, args[6]);
-    const fiber = if (args.len >= 8) try std.fmt.parseFloat(f64, args[7]) else 0;
-    const meal_type_str = if (args.len >= 9) args[8] else "other";
-    const notes = if (args.len >= 10) args[9] else null;
+    const name = positional.items[0];
+    const calories = try std.fmt.parseFloat(f64, positional.items[1]);
+    const protein = try std.fmt.parseFloat(f64, positional.items[2]);
+    const carbs = try std.fmt.parseFloat(f64, positional.items[3]);
+    const fat = try std.fmt.parseFloat(f64, positional.items[4]);
+    const fiber = if (positional.items.len >= 6) try std.fmt.parseFloat(f64, positional.items[5]) else 0;
+    const meal_type_str = if (positional.items.len >= 7) positional.items[6] else "other";
+    const notes = if (positional.items.len >= 8) positional.items[7] else null;
 
     const meal_type = MealType.fromString(meal_type_str) orelse .other;
     const timestamp = std.time.timestamp();
@@ -120,7 +144,7 @@ fn addEntry(database: *Database, args: []const []const u8) !void {
         .timestamp = timestamp,
         .meal_type = meal_type,
         .notes = notes,
-        .images = null,
+        .images = images,
     };
 
     const id = try database.addEntry(entry);
@@ -258,7 +282,7 @@ fn printUsage() void {
         \\n🍎 Food Journal - Track your meals and macros
         \\n
         \\nUsage:
-        \\  food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes]
+        \\  food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]
         \\  food-journal today [--so-far | --until HH:MM]    Show today's entries
         \\  food-journal show YYYY-MM-DD [--until HH:MM]     Show entries for specific date
         \\  food-journal recent [limit]           Show recent entries (default: 10)
