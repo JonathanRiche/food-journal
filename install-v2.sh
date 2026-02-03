@@ -98,10 +98,10 @@ fi
 case "$reply" in
   y|Y|yes|YES)
     if command -v npx >/dev/null 2>&1; then
-      npx skills add https://github.com/JonathanRiche/food-journal/skills --skill food-journal
+      npx skills add https://github.com/JonathanRiche/food-journal --skill food-journal
     else
       echo "npx not found. Install Node.js or run the command later:"
-      echo "  npx skills add https://github.com/JonathanRiche/food-journal/skills --skill food-journal"
+      echo "  npx skills add https://github.com/JonathanRiche/food-journal --skill food-journal"
     fi
     ;;
   *)

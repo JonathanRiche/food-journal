@@ -1,3 +1,9 @@
+---
+name: food-journal
+description: CLI to log meals, track macros, and query daily totals.
+license: Not specified
+---
+
 # Skill: food-journal CLI
 
 This skill describes how an agent should use the `food-journal` CLI to record and query meals.
