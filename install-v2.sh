@@ -55,9 +55,16 @@ curl -fsSL "$download_url" -o "$tmp_dir/food-journal.tar.gz"
 tar -xzf "$tmp_dir/food-journal.tar.gz" -C "$tmp_dir"
 
 install -d "$INSTALL_DIR"
+
+if [[ -x "$INSTALL_DIR/food-journal" ]]; then
+  action="Updated"
+else
+  action="Installed"
+fi
+
 install -m 755 "$tmp_dir/food-journal" "$INSTALL_DIR/food-journal"
 
-echo "Installed food-journal to $INSTALL_DIR/food-journal"
+echo "$action food-journal to $INSTALL_DIR/food-journal"
 
 case ":$PATH:" in
   *":$INSTALL_DIR:"*)
