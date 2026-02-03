@@ -89,7 +89,12 @@ case ":$PATH:" in
 esac
 
 echo ""
-read -r -p "Add the agent skill now? [y/N] " reply
+reply=""
+if [[ -t 0 ]]; then
+  read -r -p "Add the agent skill now? [y/N] " reply
+elif [[ -r /dev/tty ]]; then
+  read -r -p "Add the agent skill now? [y/N] " reply < /dev/tty
+fi
 case "$reply" in
   y|Y|yes|YES)
     if command -v npx >/dev/null 2>&1; then
