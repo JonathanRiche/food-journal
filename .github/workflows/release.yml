@@ -18,6 +18,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-linux-gnu
             build_args: ""
+          - os: ubuntu-latest
+            target: x86_64-linux-musl
+            build_args: "-Dtarget=x86_64-linux-musl"
           - os: macos-latest
             target: x86_64-macos
             build_args: "-Dtarget=x86_64-macos"
@@ -33,10 +36,6 @@ jobs:
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.15.2
-
-      - name: Install sqlite3 (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
 
       - name: Build
         run: zig build -Doptimize=ReleaseSafe ${{ matrix.build_args }}
