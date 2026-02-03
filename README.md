@@ -12,13 +12,13 @@ Track meals, macros, and quick summaries from the terminal.
 Linux x86_64 and macOS (x86_64 + arm64) builds are published on GitHub Releases.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JonathanRiche/food-journal/refs/heads/master/scripts/install.sh | bash
+curl -fsSL https://github.com/JonathanRiche/food-journal/raw/master/scripts/install.sh | bash
 ```
 
 The installer places `food-journal` in `~/.local/bin` by default. You can override:
 
 ```bash
-INSTALL_DIR="$HOME/bin" curl -fsSL https://raw.githubusercontent.com/JonathanRiche/food-journal/refs/heads/master/scripts/install.sh | bash
+INSTALL_DIR="$HOME/bin" curl -fsSL https://github.com/JonathanRiche/food-journal/raw/master/scripts/install.sh | bash
 ```
 
 If the install directory is not on PATH, the script will append it to your shell profile.
