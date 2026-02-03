@@ -30,7 +30,7 @@ The skill definition lives at `skills/food-journal/SKILL.md`.
 After installing the CLI, you can add the agent skill with:
 
 ```bash
-npx skills add https://github.com/anthropics/skills --skill food-journal
+npx skills add https://github.com/JonathanRiche/food-journal/skills --skill food-journal
 ```
 
 ## Build (from source)
