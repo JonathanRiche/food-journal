@@ -168,7 +168,8 @@ fn addEntry(database: *Database, args: []const []const u8) !void {
 fn showToday(database: *Database, until_time: ?[]const u8, so_far: bool) !void {
     // Get today's date
     const timestamp = std.time.timestamp();
-    const date_str = try timestampToDateString(timestamp);
+    var date_buf: [11]u8 = undefined;
+    const date_str = try timestampToDateString(timestamp, date_buf[0..]);
     try showDate(database, date_str, until_time, if (so_far) "now" else null);
 }
 
@@ -238,7 +239,8 @@ fn showRecent(database: *Database, limit: i64) !void {
 
     std.debug.print("\n🕐 Recent {d} entries:\n", .{entries.items.len});
     for (entries.items) |entry| {
-        const date_str = try timestampToDateString(entry.timestamp);
+        var date_buf: [11]u8 = undefined;
+        const date_str = try timestampToDateString(entry.timestamp, date_buf[0..]);
         std.debug.print("  [{d}] {s} - {s} ({s})\n", .{
             entry.id.?, date_str, entry.name, entry.meal_type.toString(),
         });
@@ -264,7 +266,8 @@ fn searchEntries(database: *Database, query: []const u8) !void {
 
     std.debug.print("\n🔍 Found {d} entries matching '{s}':\n", .{ entries.items.len, query });
     for (entries.items) |entry| {
-        const date_str = try timestampToDateString(entry.timestamp);
+        var date_buf: [11]u8 = undefined;
+        const date_str = try timestampToDateString(entry.timestamp, date_buf[0..]);
         std.debug.print("  [{d}] {s} - {s} ({s})\n", .{
             entry.id.?, date_str, entry.name, entry.meal_type.toString(),
         });
@@ -294,7 +297,8 @@ fn printUsage() void {
 }
 
 // Helper to convert timestamp to YYYY-MM-DD format
-fn timestampToDateString(timestamp: i64) ![]const u8 {
+fn timestampToDateString(timestamp: i64, buf: []u8) ![]const u8 {
+    if (buf.len < 11) return error.BufferTooSmall;
     // Calculate year, month, day from timestamp
     // This is a simplified calculation
     const days_since_epoch = @divFloor(timestamp, 86400);
@@ -333,8 +337,7 @@ fn timestampToDateString(timestamp: i64) ![]const u8 {
 
     const day = remaining_days + 1;
 
-    var buf: [11]u8 = undefined;
-    return try std.fmt.bufPrint(&buf, "{d:0>4}-{d:0>2}-{d:0>2}", .{ year, month, day });
+    return try std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}", .{ year, month, day });
 }
 
 fn isLeapYear(year: i32) bool {
