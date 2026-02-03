@@ -268,11 +268,12 @@ fn ensureImagesColumn(db: zqlite.Conn) !void {
 // Helper function to convert YYYY-MM-DD to unix timestamp
 pub fn dateStringToTimestamp(date_str: []const u8) !i64 {
     // Expected format: YYYY-MM-DD
-    if (date_str.len != 10) return error.InvalidDateFormat;
+    if (date_str.len < 10) return error.InvalidDateFormat;
 
-    const year = try std.fmt.parseInt(i32, date_str[0..4], 10);
-    const month = try std.fmt.parseInt(u5, date_str[5..7], 10);
-    const day = try std.fmt.parseInt(u5, date_str[8..10], 10);
+    const date_part = date_str[0..10];
+    const year = try std.fmt.parseInt(i32, date_part[0..4], 10);
+    const month = try std.fmt.parseInt(u5, date_part[5..7], 10);
+    const day = try std.fmt.parseInt(u5, date_part[8..10], 10);
 
     // Simple timestamp calculation (approximate, good enough for this use case)
     // Using Unix epoch: 1970-01-01
@@ -307,4 +308,11 @@ fn daysSinceEpoch(year: i32, month: u5, day: u5) i64 {
 
 fn isLeapYear(year: i32) bool {
     return (@mod(year, 4) == 0 and @mod(year, 100) != 0) or (@mod(year, 400) == 0);
+}
+
+test "dateStringToTimestamp offsets" {
+    const t1 = try dateStringToTimestamp("2026-02-03");
+    const t2 = try dateStringToTimestamp("2026-02-04");
+    try std.testing.expectEqual(@as(i64, 86400), t2 - t1);
+    try std.testing.expectError(error.InvalidDateFormat, dateStringToTimestamp("2026-2-3"));
 }

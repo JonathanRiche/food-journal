@@ -337,11 +337,102 @@ fn timestampToDateString(timestamp: i64, buf: []u8) ![]const u8 {
 
     const day = remaining_days + 1;
 
-    return try std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}", .{ year, month, day });
+    const year_u: u16 = @intCast(year);
+    const month_u: u8 = @intCast(month);
+    const day_u: u8 = @intCast(day);
+    return try std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}", .{ year_u, month_u, day_u });
 }
 
 fn isLeapYear(year: i32) bool {
     return (@mod(year, 4) == 0 and @mod(year, 100) != 0) or (@mod(year, 400) == 0);
+}
+
+test "parseFlagValue and hasFlag" {
+    const args = [_][]const u8{ "food-journal", "today", "--until", "12:30" };
+    try std.testing.expect(hasFlag(&args, "--until"));
+    try std.testing.expect(!hasFlag(&args, "--so-far"));
+    try std.testing.expectEqualStrings("12:30", (try parseFlagValue(&args, "--until")) orelse "");
+    try std.testing.expectEqual(@as(?[]const u8, null), try parseFlagValue(&args, "--missing"));
+    try std.testing.expectError(error.MissingFlagValue, parseFlagValue(&[_][]const u8{ "food-journal", "today", "--until" }, "--until"));
+}
+
+test "parseTimeToSeconds" {
+    try std.testing.expectEqual(@as(i64, 0), try parseTimeToSeconds("00:00"));
+    try std.testing.expectEqual(@as(i64, 86340), try parseTimeToSeconds("23:59"));
+    try std.testing.expectError(error.InvalidTimeFormat, parseTimeToSeconds("24:00"));
+    try std.testing.expectError(error.InvalidTimeFormat, parseTimeToSeconds("9:00"));
+}
+
+test "timestampToDateString roundtrip" {
+    const date = "2026-02-03";
+    const ts = try db.dateStringToTimestamp(date);
+    var buf: [11]u8 = undefined;
+    const out = try timestampToDateString(ts, buf[0..]);
+    try std.testing.expectEqualStrings(date, out);
+}
+
+test "buildDateRange with until time" {
+    const date = "2026-02-03";
+    const range = try buildDateRange(date, "12:34", null);
+    const start_ts = try db.dateStringToTimestamp(date);
+    const expected_end = start_ts + (12 * 3600 + 34 * 60 + 60);
+    try std.testing.expectEqual(start_ts, range.start_ts);
+    try std.testing.expectEqual(expected_end, range.end_ts);
+}
+
+test "cli commands basic" {
+    var database = try Database.init(std.testing.allocator, ":memory:");
+    defer database.close();
+
+    const add_args = [_][]const u8{
+        "food-journal",
+        "add",
+        "Test Food",
+        "100",
+        "10",
+        "20",
+        "5",
+        "1",
+        "lunch",
+        "note",
+        "--images",
+        "img1.jpg,img2.jpg",
+    };
+    try addEntry(&database, &add_args);
+
+    try showToday(&database, null, false);
+
+    var date_buf: [11]u8 = undefined;
+    const date_str = try timestampToDateString(std.time.timestamp(), date_buf[0..]);
+    try showDate(&database, date_str, null, null);
+
+    try showRecent(&database, 10);
+    try searchEntries(&database, "Test");
+
+    var entries = try database.getRecentEntries(10);
+    defer {
+        for (entries.items) |entry| {
+            database.allocator.free(entry.name);
+            if (entry.notes) |notes| database.allocator.free(notes);
+            if (entry.images) |images| database.allocator.free(images);
+        }
+        entries.deinit(database.allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), entries.items.len);
+    const entry_id = entries.items[0].id.?;
+    try deleteEntry(&database, entry_id);
+
+    var after_delete = try database.getRecentEntries(10);
+    defer {
+        for (after_delete.items) |entry| {
+            database.allocator.free(entry.name);
+            if (entry.notes) |notes| database.allocator.free(notes);
+            if (entry.images) |images| database.allocator.free(images);
+        }
+        after_delete.deinit(database.allocator);
+    }
+    try std.testing.expectEqual(@as(usize, 0), after_delete.items.len);
 }
 
 fn hasFlag(args: []const []const u8, flag: []const u8) bool {

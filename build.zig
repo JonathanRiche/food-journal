@@ -26,8 +26,55 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
-    exe.root_module.addIncludePath(zqlite_dep.path("lib"));
-    exe.root_module.addCSourceFile(.{
+    addSqlite(exe.root_module, zqlite_dep);
+
+    // Install the executable
+    b.installArtifact(exe);
+
+    // Run step
+    const run_step = b.step("run", "Run the app");
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    run_step.dependOn(&run_cmd.step);
+
+    // Test step
+    const test_step = b.step("test", "Run tests");
+
+    const model_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/models.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const model_tests = b.addTest(.{
+        .root_module = model_test_mod,
+    });
+    const run_model_tests = b.addRunArtifact(model_tests);
+    test_step.dependOn(&run_model_tests.step);
+
+    const main_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    main_test_mod.addImport("zqlite", zqlite_dep.module("zqlite"));
+
+    const main_tests = b.addTest(.{
+        .root_module = main_test_mod,
+    });
+    addSqlite(main_tests.root_module, zqlite_dep);
+    const run_main_tests = b.addRunArtifact(main_tests);
+    test_step.dependOn(&run_main_tests.step);
+}
+
+fn addSqlite(module: *std.Build.Module, zqlite_dep: *std.Build.Dependency) void {
+    module.addIncludePath(zqlite_dep.path("lib"));
+    module.addCSourceFile(.{
         .file = zqlite_dep.path("lib/sqlite3.c"),
         .flags = &[_][]const u8{
             "-DSQLITE_DQS=0",
@@ -48,35 +95,5 @@ pub fn build(b: *std.Build) void {
             "-DHAVE_USLEEP=0",
         },
     });
-    exe.root_module.link_libc = true;
-
-    // Install the executable
-    b.installArtifact(exe);
-
-    // Run step
-    const run_step = b.step("run", "Run the app");
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    run_step.dependOn(&run_cmd.step);
-
-    // Test step
-    const test_step = b.step("test", "Run tests");
-
-    const test_mod = b.createModule(.{
-        .root_source_file = b.path("src/models.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const mod_tests = b.addTest(.{
-        .root_module = test_mod,
-    });
-
-    const run_mod_tests = b.addRunArtifact(mod_tests);
-    test_step.dependOn(&run_mod_tests.step);
+    module.link_libc = true;
 }
