@@ -7,6 +7,7 @@ const c = @cImport({
 const FoodEntry = models.FoodEntry;
 const MealType = models.MealType;
 const DailySummary = models.DailySummary;
+const FoodCacheEntry = models.FoodCacheEntry;
 
 pub const Database = struct {
     db: zqlite.Conn,
@@ -41,6 +42,7 @@ pub const Database = struct {
         try db.exec(create_table_sql, .{});
 
         try ensureImagesColumn(db);
+        try ensureFoodCacheTable(db);
 
         // Create index for faster date queries
         try db.exec("CREATE INDEX IF NOT EXISTS idx_timestamp ON food_entries(timestamp)", .{});
@@ -265,7 +267,91 @@ pub const Database = struct {
 
         return entries;
     }
+
+    pub fn searchFoodCache(self: *Database, query: []const u8) !std.ArrayList(FoodCacheEntry) {
+        var entries: std.ArrayList(FoodCacheEntry) = .empty;
+        errdefer entries.deinit(self.allocator);
+
+        var pattern_buf: [256]u8 = undefined;
+        const pattern = std.fmt.bufPrint(&pattern_buf, "%{s}%", .{query}) catch return entries;
+
+        var rows = try self.db.rows("SELECT product_id, name, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, timestamp " ++
+            "FROM food_cache " ++
+            "WHERE name LIKE ? " ++
+            "ORDER BY name ASC", .{pattern});
+        defer rows.deinit();
+
+        while (rows.next()) |row| {
+            const entry = FoodCacheEntry{
+                .product_id = try self.allocator.dupe(u8, row.text(0)),
+                .name = try self.allocator.dupe(u8, row.text(1)),
+                .calories_per_100g = row.float(2),
+                .protein_per_100g = row.float(3),
+                .carbs_per_100g = row.float(4),
+                .fat_per_100g = row.float(5),
+                .fiber_per_100g = row.float(6),
+                .timestamp = row.int(7),
+            };
+            try entries.append(self.allocator, entry);
+        }
+
+        if (rows.err) |err| return err;
+
+        return entries;
+    }
+
+    pub fn getFoodCacheById(self: *Database, product_id: []const u8) !?FoodCacheEntry {
+        if (try self.db.row("SELECT product_id, name, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, timestamp " ++
+            "FROM food_cache WHERE product_id = ?", .{product_id})) |row| {
+            defer row.deinit();
+            return FoodCacheEntry{
+                .product_id = try self.allocator.dupe(u8, row.text(0)),
+                .name = try self.allocator.dupe(u8, row.text(1)),
+                .calories_per_100g = row.float(2),
+                .protein_per_100g = row.float(3),
+                .carbs_per_100g = row.float(4),
+                .fat_per_100g = row.float(5),
+                .fiber_per_100g = row.float(6),
+                .timestamp = row.int(7),
+            };
+        }
+        return null;
+    }
+
+    pub fn upsertFoodCache(self: *Database, entry: FoodCacheEntry) !void {
+        try self.db.exec(
+            "INSERT INTO food_cache (product_id, name, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, timestamp) " ++
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " ++
+                "ON CONFLICT(product_id) DO UPDATE SET name = excluded.name, calories_per_100g = excluded.calories_per_100g, " ++
+                "protein_per_100g = excluded.protein_per_100g, carbs_per_100g = excluded.carbs_per_100g, fat_per_100g = excluded.fat_per_100g, " ++
+                "fiber_per_100g = excluded.fiber_per_100g, timestamp = excluded.timestamp",
+            .{
+                entry.product_id,
+                entry.name,
+                entry.calories_per_100g,
+                entry.protein_per_100g,
+                entry.carbs_per_100g,
+                entry.fat_per_100g,
+                entry.fiber_per_100g,
+                entry.timestamp,
+            },
+        );
+    }
 };
+
+fn ensureFoodCacheTable(db: zqlite.Conn) !void {
+    const create_cache_sql =
+        "CREATE TABLE IF NOT EXISTS food_cache (" ++
+        "product_id TEXT PRIMARY KEY," ++
+        "name TEXT NOT NULL," ++
+        "calories_per_100g REAL," ++
+        "protein_per_100g REAL," ++
+        "carbs_per_100g REAL," ++
+        "fat_per_100g REAL," ++
+        "fiber_per_100g REAL," ++
+        "timestamp INTEGER NOT NULL)";
+    try db.exec(create_cache_sql, .{});
+}
 
 fn ensureImagesColumn(db: zqlite.Conn) !void {
     var has_images = false;
@@ -317,4 +403,47 @@ test "dateStringToTimestamp offsets" {
     const diff = t2 - t1;
     try std.testing.expect(diff >= 23 * 3600 and diff <= 25 * 3600);
     try std.testing.expectError(error.InvalidDateFormat, dateStringToTimestamp("2026-2-3"));
+}
+
+test "food cache upsert and lookup" {
+    var database = try Database.init(std.testing.allocator, ":memory:");
+    defer database.close();
+
+    const entry: FoodCacheEntry = .{
+        .product_id = "12345",
+        .name = "Test Food",
+        .calories_per_100g = 100,
+        .protein_per_100g = 10,
+        .carbs_per_100g = 20,
+        .fat_per_100g = 5,
+        .fiber_per_100g = 3,
+        .timestamp = 1700000000,
+    };
+
+    try database.upsertFoodCache(entry);
+
+    const fetched = try database.getFoodCacheById("12345");
+    try std.testing.expect(fetched != null);
+    const value = fetched.?;
+    defer {
+        database.allocator.free(value.product_id);
+        database.allocator.free(value.name);
+    }
+
+    try std.testing.expectEqualStrings("12345", value.product_id);
+    try std.testing.expectEqualStrings("Test Food", value.name);
+    try std.testing.expectEqual(@as(f64, 100), value.calories_per_100g);
+    try std.testing.expectEqual(@as(f64, 10), value.protein_per_100g);
+
+    var matches = try database.searchFoodCache("Test");
+    defer {
+        for (matches.items) |item| {
+            database.allocator.free(item.product_id);
+            database.allocator.free(item.name);
+        }
+        matches.deinit(database.allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), matches.items.len);
+    try std.testing.expectEqualStrings("12345", matches.items[0].product_id);
 }

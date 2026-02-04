@@ -69,6 +69,17 @@ pub const MealType = enum {
     }
 };
 
+pub const FoodCacheEntry = struct {
+    product_id: []const u8,
+    name: []const u8,
+    calories_per_100g: f64,
+    protein_per_100g: f64,
+    carbs_per_100g: f64,
+    fat_per_100g: f64,
+    fiber_per_100g: f64,
+    timestamp: i64,
+};
+
 pub const DailySummary = struct {
     date: []const u8,
     total_calories: f64,

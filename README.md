@@ -55,6 +55,7 @@ Examples:
 
 ```bash
 food-journal add "Chicken Breast" 165 31 0 3.6 0 lunch "Grilled, 100g"
+food-journal add "50g mayonnaise" --from-db 5000157076410
 food-journal today
 food-journal today --so-far
 food-journal show 2026-02-03 --until 14:30
@@ -66,6 +67,8 @@ food-journal delete 42
 ## Commands
 
 - `add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]`
+- `add "50g mayonnaise" --from-db <product_id> [meal_type] [notes] [--images <list>] [--timestamp <unix>]`
+  - `--from-db` pulls per-100g macros from the local Open Food Facts cache and scales to the portion size in the name (e.g., `50g`). Defaults to 100g when no portion is specified.
   - `meal_type` values: `breakfast`, `lunch`, `dinner`, `snack`, `other`
   - `--images` accepts a free-form string (comma-separated list recommended)
   - `--timestamp` accepts a unix timestamp
@@ -76,7 +79,7 @@ food-journal delete 42
   - `--until HH:MM` uses a time-of-day cutoff (24h format)
 - `show YYYY-MM-DD [--until HH:MM]`
 - `recent [limit]`
-- `search <query>`
+- `search <query>` (queries Open Food Facts and caches results)
 - `delete <id>`
 - `help`
 

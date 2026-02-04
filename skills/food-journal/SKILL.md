@@ -24,6 +24,13 @@ Add a meal entry with macros:
 food-journal add "Greek Yogurt" 120 20 8 0 0 breakfast "Plain, 170g"
 ```
 
+Add a meal entry using Open Food Facts cache (per-100g macros scaled by portion size):
+
+```bash
+food-journal search mayonnaise
+food-journal add "50g mayonnaise" --from-db 5000157076410
+```
+
 Optional images list (store as a single string; comma-separated works well):
 
 ```bash
@@ -64,7 +71,7 @@ food-journal show 2026-02-03 --until 14:30
 
 ## Searching and cleanup
 
-- Search by name:
+- Search Open Food Facts (cached locally):
   ```bash
   food-journal search chicken
   ```

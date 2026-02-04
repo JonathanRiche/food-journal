@@ -1,11 +1,13 @@
 const std = @import("std");
 const db = @import("db.zig");
 const models = @import("models.zig");
+const food_api = @import("food_api.zig");
 const c = @cImport({
     @cInclude("time.h");
 });
 const FoodEntry = models.FoodEntry;
 const MealType = models.MealType;
+const FoodCacheEntry = models.FoodCacheEntry;
 const Database = db.Database;
 
 const DB_NAME = "food_journal.db";
@@ -76,7 +78,7 @@ pub fn main() !void {
             std.debug.print("Usage: food-journal search <query>\n", .{});
             return;
         }
-        try searchEntries(&database, args[2]);
+        try searchProducts(&database, args[2]);
     } else if (std.mem.eql(u8, command, "delete")) {
         if (args.len < 3) {
             std.debug.print("Usage: food-journal delete <id>\n", .{});
@@ -96,14 +98,21 @@ fn addEntry(database: *Database, args: []const []const u8) !void {
     // Quick add: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
     const images = parseFlagValue(args, "--images") catch |err| switch (err) {
         error.MissingFlagValue => {
-            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
+            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix> | --from-db <product_id>]\n", .{});
             return;
         },
         else => return err,
     };
     const timestamp_str = parseFlagValue(args, "--timestamp") catch |err| switch (err) {
         error.MissingFlagValue => {
-            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
+            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix> | --from-db <product_id>]\n", .{});
+            return;
+        },
+        else => return err,
+    };
+    const from_db = parseFlagValue(args, "--from-db") catch |err| switch (err) {
+        error.MissingFlagValue => {
+            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix> | --from-db <product_id>]\n", .{});
             return;
         },
         else => return err,
@@ -114,15 +123,83 @@ fn addEntry(database: *Database, args: []const []const u8) !void {
 
     var i: usize = 2;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--images") or std.mem.eql(u8, args[i], "--timestamp")) {
+        if (std.mem.eql(u8, args[i], "--images") or std.mem.eql(u8, args[i], "--timestamp") or std.mem.eql(u8, args[i], "--from-db")) {
             if (i + 1 >= args.len) {
-                std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
+                std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix> | --from-db <product_id>]\n", .{});
                 return;
             }
             i += 1;
             continue;
         }
         try positional.append(database.allocator, args[i]);
+    }
+
+    if (from_db) |product_id| {
+        if (positional.items.len < 1) {
+            std.debug.print(
+                \\nUsage: food-journal add "2 eggs" --from-db <product_id> [meal_type] [notes] [--images <list>] [--timestamp <unix>]
+                \\nMeal types: breakfast, lunch, dinner, snack, other (default: other)
+                \\n
+            , .{});
+            return;
+        }
+
+        const description = positional.items[0];
+        const meal_type_str = if (positional.items.len >= 2) positional.items[1] else "other";
+        const notes = if (positional.items.len >= 3) positional.items[2] else null;
+
+        const cached = try database.getFoodCacheById(product_id);
+        if (cached == null) {
+            std.debug.print("No cached item found for product id {s}. Run: food-journal search <query>\n", .{product_id});
+            return;
+        }
+        const cache_entry = cached.?;
+        defer {
+            database.allocator.free(cache_entry.product_id);
+            database.allocator.free(cache_entry.name);
+        }
+
+        const multiplier = parseQuantityMultiplier(description);
+        const calories = cache_entry.calories_per_100g * multiplier;
+        const protein = cache_entry.protein_per_100g * multiplier;
+        const carbs = cache_entry.carbs_per_100g * multiplier;
+        const fat = cache_entry.fat_per_100g * multiplier;
+        const fiber = cache_entry.fiber_per_100g * multiplier;
+
+        const meal_type = MealType.fromString(meal_type_str) orelse .other;
+        const timestamp = if (timestamp_str) |value| try std.fmt.parseInt(i64, value, 10) else std.time.timestamp();
+
+        const entry = FoodEntry{
+            .id = null,
+            .name = description,
+            .calories = calories,
+            .protein = protein,
+            .carbs = carbs,
+            .fat = fat,
+            .fiber = fiber,
+            .timestamp = timestamp,
+            .meal_type = meal_type,
+            .notes = notes,
+            .images = images,
+        };
+
+        const id = try database.addEntry(entry);
+
+        std.debug.print(
+            \\n✅ Added entry #{d}
+            \\nFood: {s}
+            \\nCalories: {d:.0}
+            \\nProtein: {d:.1}g
+            \\nCarbs: {d:.1}g
+            \\nFat: {d:.1}g
+            \\nFiber: {d:.1}g
+            \\nMeal: {s}
+            \\nTime: {d}
+            \\n
+        , .{
+            id, description, calories, protein, carbs, fat, fiber, meal_type.toString(), timestamp,
+        });
+        return;
     }
 
     if (positional.items.len < 5) {
@@ -407,6 +484,66 @@ fn searchEntries(database: *Database, query: []const u8) !void {
     }
 }
 
+fn searchProducts(database: *Database, query: []const u8) !void {
+    var cached = try database.searchFoodCache(query);
+    if (cached.items.len > 0) {
+        defer {
+            for (cached.items) |entry| {
+                database.allocator.free(entry.product_id);
+                database.allocator.free(entry.name);
+            }
+            cached.deinit(database.allocator);
+        }
+
+        std.debug.print("\n🔍 Cached results for '{s}':\n", .{query});
+        for (cached.items) |entry| {
+            std.debug.print("  [{s}] {s}\n", .{ entry.product_id, entry.name });
+            std.debug.print("      Calories: {d:.0} | Protein: {d:.1}g | Carbs: {d:.1}g | Fat: {d:.1}g\n", .{
+                entry.calories_per_100g, entry.protein_per_100g, entry.carbs_per_100g, entry.fat_per_100g,
+            });
+        }
+        return;
+    }
+    cached.deinit(database.allocator);
+
+    var products = try food_api.searchProducts(database.allocator, query);
+    defer {
+        for (products.items) |product| {
+            database.allocator.free(product.product_id);
+            database.allocator.free(product.name);
+        }
+        products.deinit(database.allocator);
+    }
+
+    if (products.items.len == 0) {
+        std.debug.print("No products found for '{s}'.\n", .{query});
+        return;
+    }
+
+    const now = std.time.timestamp();
+    for (products.items) |product| {
+        const cache_entry = FoodCacheEntry{
+            .product_id = product.product_id,
+            .name = product.name,
+            .calories_per_100g = product.calories_per_100g,
+            .protein_per_100g = product.protein_per_100g,
+            .carbs_per_100g = product.carbs_per_100g,
+            .fat_per_100g = product.fat_per_100g,
+            .fiber_per_100g = product.fiber_per_100g,
+            .timestamp = now,
+        };
+        try database.upsertFoodCache(cache_entry);
+    }
+
+    std.debug.print("\n🔍 Open Food Facts results for '{s}':\n", .{query});
+    for (products.items) |product| {
+        std.debug.print("  [{s}] {s}\n", .{ product.product_id, product.name });
+        std.debug.print("      Calories: {d:.0} | Protein: {d:.1}g | Carbs: {d:.1}g | Fat: {d:.1}g\n", .{
+            product.calories_per_100g, product.protein_per_100g, product.carbs_per_100g, product.fat_per_100g,
+        });
+    }
+}
+
 fn deleteEntry(database: *Database, id: i64) !void {
     try database.deleteEntry(id);
     std.debug.print("✅ Deleted entry #{d}\n", .{id});
@@ -418,12 +555,13 @@ fn printUsage() void {
         \\n
         \\nUsage:
         \\  food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
+        \\  food-journal add "2 eggs" --from-db <product_id> [meal_type] [notes] [--images <list>] [--timestamp <unix>]
         \\  food-journal edit <id> "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
         \\  food-journal upgrade [--dry-run]     Update to latest release
         \\  food-journal today [--so-far | --until HH:MM]    Show today's entries
         \\  food-journal show YYYY-MM-DD [--until HH:MM]     Show entries for specific date
         \\  food-journal recent [limit]           Show recent entries (default: 10)
-        \\  food-journal search <query>          Search food entries by name
+        \\  food-journal search <query>          Search Open Food Facts catalog (uses cache)
         \\  food-journal delete <id>              Delete an entry by ID
         \\  food-journal help                     Show this help message
         \\n
@@ -458,6 +596,13 @@ test "parseTimeToSeconds" {
     try std.testing.expectEqual(@as(i64, 86340), try parseTimeToSeconds("23:59"));
     try std.testing.expectError(error.InvalidTimeFormat, parseTimeToSeconds("24:00"));
     try std.testing.expectError(error.InvalidTimeFormat, parseTimeToSeconds("9:00"));
+}
+
+test "parseQuantityMultiplier" {
+    try std.testing.expectEqual(@as(f64, 1.0), parseQuantityMultiplier("mayonnaise"));
+    try std.testing.expectEqual(@as(f64, 0.5), parseQuantityMultiplier("50g mayonnaise"));
+    try std.testing.expectEqual(@as(f64, 2.0), parseQuantityMultiplier("200g"));
+    try std.testing.expectEqual(@as(f64, 0.75), parseQuantityMultiplier("75 g sauce"));
 }
 
 test "timestampToDateString roundtrip" {
@@ -512,6 +657,33 @@ test "cli commands basic" {
     try showRecent(&database, 10);
     try searchEntries(&database, "Test");
 
+    const cache_entry: FoodCacheEntry = .{
+        .product_id = "cache-1",
+        .name = "Cached Food",
+        .calories_per_100g = 120,
+        .protein_per_100g = 9,
+        .carbs_per_100g = 15,
+        .fat_per_100g = 4,
+        .fiber_per_100g = 2,
+        .timestamp = now_ts,
+    };
+    try database.upsertFoodCache(cache_entry);
+
+    try searchProducts(&database, "Cached");
+
+    const add_cached_args = [_][]const u8{
+        "food-journal",
+        "add",
+        "200g",
+        "--from-db",
+        "cache-1",
+        "dinner",
+        "from cache",
+        "--timestamp",
+        ts_str,
+    };
+    try addEntry(&database, &add_cached_args);
+
     const upgrade_args = [_][]const u8{ "food-journal", "upgrade", "--dry-run" };
     try upgradeCli(&database, &upgrade_args);
 
@@ -525,9 +697,20 @@ test "cli commands basic" {
         entries.deinit(database.allocator);
     }
 
-    try std.testing.expectEqual(@as(usize, 1), entries.items.len);
-    const entry_id = entries.items[0].id.?;
-    try std.testing.expectEqual(now_ts, entries.items[0].timestamp);
+    try std.testing.expectEqual(@as(usize, 2), entries.items.len);
+
+    var base_entry_id: ?i64 = null;
+    for (entries.items) |entry| {
+        if (std.mem.eql(u8, entry.name, "Test Food")) {
+            base_entry_id = entry.id;
+        } else if (std.mem.eql(u8, entry.name, "200g")) {
+            try std.testing.expectEqual(@as(f64, 240), entry.calories);
+            try std.testing.expectEqual(@as(f64, 18), entry.protein);
+        }
+    }
+
+    try std.testing.expect(base_entry_id != null);
+    const entry_id = base_entry_id.?;
 
     const edit_ts = now_ts + 120;
     var edit_ts_buf: [20]u8 = undefined;
@@ -564,13 +747,23 @@ test "cli commands basic" {
         updated_entries.deinit(database.allocator);
     }
 
-    try std.testing.expectEqual(@as(usize, 1), updated_entries.items.len);
-    try std.testing.expectEqual(entry_id, updated_entries.items[0].id.?);
-    try std.testing.expectEqualStrings("Updated Food", updated_entries.items[0].name);
-    try std.testing.expectEqual(@as(f64, 200), updated_entries.items[0].calories);
-    try std.testing.expectEqual(edit_ts, updated_entries.items[0].timestamp);
-    try std.testing.expectEqualStrings("updated note", updated_entries.items[0].notes orelse "");
-    try std.testing.expectEqualStrings("img3.jpg", updated_entries.items[0].images orelse "");
+    try std.testing.expectEqual(@as(usize, 2), updated_entries.items.len);
+
+    var updated_entry: ?FoodEntry = null;
+    for (updated_entries.items) |entry| {
+        if (entry.id == entry_id) {
+            updated_entry = entry;
+            break;
+        }
+    }
+
+    try std.testing.expect(updated_entry != null);
+    const updated = updated_entry.?;
+    try std.testing.expectEqualStrings("Updated Food", updated.name);
+    try std.testing.expectEqual(@as(f64, 200), updated.calories);
+    try std.testing.expectEqual(edit_ts, updated.timestamp);
+    try std.testing.expectEqualStrings("updated note", updated.notes orelse "");
+    try std.testing.expectEqualStrings("img3.jpg", updated.images orelse "");
 
     try deleteEntry(&database, entry_id);
 
@@ -583,7 +776,59 @@ test "cli commands basic" {
         }
         after_delete.deinit(database.allocator);
     }
-    try std.testing.expectEqual(@as(usize, 0), after_delete.items.len);
+    try std.testing.expectEqual(@as(usize, 1), after_delete.items.len);
+}
+
+test "open food facts integration" {
+    var database = try Database.init(std.testing.allocator, ":memory:");
+    defer database.close();
+
+    try searchProducts(&database, "coca cola");
+
+    var cached = try database.searchFoodCache("cola");
+    defer {
+        for (cached.items) |entry| {
+            database.allocator.free(entry.product_id);
+            database.allocator.free(entry.name);
+        }
+        cached.deinit(database.allocator);
+    }
+
+    try std.testing.expect(cached.items.len > 0);
+    const product = cached.items[0];
+
+    const now_ts = std.time.timestamp();
+    var ts_buf: [20]u8 = undefined;
+    const ts_str = try std.fmt.bufPrint(ts_buf[0..], "{d}", .{now_ts});
+
+    const add_cached_args = [_][]const u8{
+        "food-journal",
+        "add",
+        "100g",
+        "--from-db",
+        product.product_id,
+        "other",
+        "integration",
+        "--timestamp",
+        ts_str,
+    };
+    try addEntry(&database, &add_cached_args);
+
+    var entries = try database.getRecentEntries(1);
+    defer {
+        for (entries.items) |entry| {
+            database.allocator.free(entry.name);
+            if (entry.notes) |notes| database.allocator.free(notes);
+            if (entry.images) |images| database.allocator.free(images);
+        }
+        entries.deinit(database.allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), entries.items.len);
+    const entry = entries.items[0];
+    try std.testing.expectEqualStrings("100g", entry.name);
+    try std.testing.expectEqual(product.calories_per_100g, entry.calories);
+    try std.testing.expectEqual(product.protein_per_100g, entry.protein);
 }
 
 fn hasFlag(args: []const []const u8, flag: []const u8) bool {
@@ -643,6 +888,49 @@ fn parseTimeToSeconds(time_str: []const u8) !i64 {
     if (hour < 0 or hour > 23 or minute < 0 or minute > 59) return error.InvalidTimeFormat;
 
     return hour * 3600 + minute * 60;
+}
+
+fn parseQuantityMultiplier(description: []const u8) f64 {
+    var trimmed = std.mem.trim(u8, description, " ");
+    if (trimmed.len == 0) return 1.0;
+
+    const first_token = firstToken(trimmed);
+    if (first_token.len > 0) {
+        if (std.mem.endsWith(u8, first_token, "g")) {
+            const number_part = first_token[0 .. first_token.len - 1];
+            if (number_part.len > 0) {
+                if (std.fmt.parseFloat(f64, number_part) catch null) |grams| {
+                    return grams / 100.0;
+                }
+            }
+        }
+    }
+
+    if (std.mem.endsWith(u8, trimmed, "g")) {
+        const number_part = trimmed[0 .. trimmed.len - 1];
+        if (number_part.len > 0) {
+            if (std.fmt.parseFloat(f64, number_part) catch null) |grams| {
+                return grams / 100.0;
+            }
+        }
+    }
+
+    var it = std.mem.tokenizeAny(u8, trimmed, " \t");
+    const first = it.next() orelse return 1.0;
+    const second = it.next() orelse return 1.0;
+
+    if (std.mem.eql(u8, second, "g") or std.mem.eql(u8, second, "gram") or std.mem.eql(u8, second, "grams")) {
+        if (std.fmt.parseFloat(f64, first) catch null) |grams| {
+            return grams / 100.0;
+        }
+    }
+
+    return 1.0;
+}
+
+fn firstToken(input: []const u8) []const u8 {
+    var it = std.mem.tokenizeAny(u8, input, " \t");
+    return it.next() orelse "";
 }
 
 fn getDatabasePath(allocator: std.mem.Allocator) ![]u8 {
