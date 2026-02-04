@@ -70,6 +70,24 @@ pub const Database = struct {
         return self.db.lastInsertedRowId();
     }
 
+    pub fn updateEntry(self: *Database, entry: FoodEntry) !void {
+        const id = entry.id orelse return error.InvalidEntryId;
+
+        try self.db.exec("UPDATE food_entries SET name = ?, calories = ?, protein = ?, carbs = ?, fat = ?, fiber = ?, timestamp = ?, meal_type = ?, notes = ?, images = ? WHERE id = ?", .{
+            entry.name,
+            entry.calories,
+            entry.protein,
+            entry.carbs,
+            entry.fat,
+            entry.fiber,
+            entry.timestamp,
+            entry.meal_type.toString(),
+            entry.notes,
+            entry.images,
+            id,
+        });
+    }
+
     pub fn getEntriesForDate(self: *Database, date_str: []const u8) !std.ArrayList(FoodEntry) {
         const start_ts = try dateStringToTimestamp(date_str);
         const end_ts = start_ts + 86400;

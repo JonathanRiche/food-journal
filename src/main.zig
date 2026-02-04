@@ -38,6 +38,8 @@ pub fn main() !void {
 
     if (std.mem.eql(u8, command, "add")) {
         try addEntry(&database, args);
+    } else if (std.mem.eql(u8, command, "edit")) {
+        try editEntry(&database, args);
     } else if (std.mem.eql(u8, command, "today")) {
         const until_time = parseFlagValue(args, "--until") catch |err| switch (err) {
             error.MissingFlagValue => {
@@ -172,6 +174,94 @@ fn addEntry(database: *Database, args: []const []const u8) !void {
     });
 }
 
+fn editEntry(database: *Database, args: []const []const u8) !void {
+    // Edit: food-journal edit <id> "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
+    const images = parseFlagValue(args, "--images") catch |err| switch (err) {
+        error.MissingFlagValue => {
+            std.debug.print("Usage: food-journal edit <id> \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
+            return;
+        },
+        else => return err,
+    };
+    const timestamp_str = parseFlagValue(args, "--timestamp") catch |err| switch (err) {
+        error.MissingFlagValue => {
+            std.debug.print("Usage: food-journal edit <id> \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
+            return;
+        },
+        else => return err,
+    };
+
+    var positional: std.ArrayList([]const u8) = .empty;
+    defer positional.deinit(database.allocator);
+
+    var i: usize = 2;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--images") or std.mem.eql(u8, args[i], "--timestamp")) {
+            if (i + 1 >= args.len) {
+                std.debug.print("Usage: food-journal edit <id> \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
+                return;
+            }
+            i += 1;
+            continue;
+        }
+        try positional.append(database.allocator, args[i]);
+    }
+
+    if (positional.items.len < 6) {
+        std.debug.print(
+            \\nUsage: food-journal edit <id> "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
+            \\nExample: food-journal edit 12 "Chicken Breast" 165 31 0 3.6 0 lunch "Grilled, 100g" --images "front.jpg,back.jpg" --timestamp 1700000000
+            \\nMeal types: breakfast, lunch, dinner, snack, other (default: other)
+            \\n
+        , .{});
+        return;
+    }
+
+    const id = try std.fmt.parseInt(i64, positional.items[0], 10);
+    const name = positional.items[1];
+    const calories = try std.fmt.parseFloat(f64, positional.items[2]);
+    const protein = try std.fmt.parseFloat(f64, positional.items[3]);
+    const carbs = try std.fmt.parseFloat(f64, positional.items[4]);
+    const fat = try std.fmt.parseFloat(f64, positional.items[5]);
+    const fiber = if (positional.items.len >= 7) try std.fmt.parseFloat(f64, positional.items[6]) else 0;
+    const meal_type_str = if (positional.items.len >= 8) positional.items[7] else "other";
+    const notes = if (positional.items.len >= 9) positional.items[8] else null;
+
+    const meal_type = MealType.fromString(meal_type_str) orelse .other;
+    const timestamp = if (timestamp_str) |value| try std.fmt.parseInt(i64, value, 10) else std.time.timestamp();
+
+    const entry = FoodEntry{
+        .id = id,
+        .name = name,
+        .calories = calories,
+        .protein = protein,
+        .carbs = carbs,
+        .fat = fat,
+        .fiber = fiber,
+        .timestamp = timestamp,
+        .meal_type = meal_type,
+        .notes = notes,
+        .images = images,
+    };
+
+    try database.updateEntry(entry);
+
+    std.debug.print(
+        \\n+✅ Updated entry #{d}
+        \\n+Food: {s}
+        \\n+Calories: {d:.0}
+        \\n+Protein: {d:.1}g
+        \\n+Carbs: {d:.1}g
+        \\n+Fat: {d:.1}g
+        \\n+Fiber: {d:.1}g
+        \\n+Meal: {s}
+        \\n+Time: {d}
+        \\n+
+    , .{
+        id, name, calories, protein, carbs, fat, fiber, meal_type.toString(), timestamp,
+    });
+}
+
 fn showToday(database: *Database, until_time: ?[]const u8, so_far: bool) !void {
     // Get today's date
     const timestamp = std.time.timestamp();
@@ -293,6 +383,7 @@ fn printUsage() void {
         \\n
         \\nUsage:
         \\  food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
+        \\  food-journal edit <id> "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
         \\  food-journal today [--so-far | --until HH:MM]    Show today's entries
         \\  food-journal show YYYY-MM-DD [--until HH:MM]     Show entries for specific date
         \\  food-journal recent [limit]           Show recent entries (default: 10)
@@ -435,6 +526,50 @@ test "cli commands basic" {
     try std.testing.expectEqual(@as(usize, 1), entries.items.len);
     const entry_id = entries.items[0].id.?;
     try std.testing.expectEqual(now_ts, entries.items[0].timestamp);
+
+    const edit_ts = now_ts + 120;
+    var edit_ts_buf: [20]u8 = undefined;
+    const edit_ts_str = try std.fmt.bufPrint(edit_ts_buf[0..], "{d}", .{edit_ts});
+    var id_buf: [20]u8 = undefined;
+    const id_str = try std.fmt.bufPrint(id_buf[0..], "{d}", .{entry_id});
+
+    const edit_args = [_][]const u8{
+        "food-journal",
+        "edit",
+        id_str,
+        "Updated Food",
+        "200",
+        "15",
+        "30",
+        "8",
+        "2",
+        "dinner",
+        "updated note",
+        "--images",
+        "img3.jpg",
+        "--timestamp",
+        edit_ts_str,
+    };
+    try editEntry(&database, &edit_args);
+
+    var updated_entries = try database.getRecentEntries(10);
+    defer {
+        for (updated_entries.items) |entry| {
+            database.allocator.free(entry.name);
+            if (entry.notes) |notes| database.allocator.free(notes);
+            if (entry.images) |images| database.allocator.free(images);
+        }
+        updated_entries.deinit(database.allocator);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), updated_entries.items.len);
+    try std.testing.expectEqual(entry_id, updated_entries.items[0].id.?);
+    try std.testing.expectEqualStrings("Updated Food", updated_entries.items[0].name);
+    try std.testing.expectEqual(@as(f64, 200), updated_entries.items[0].calories);
+    try std.testing.expectEqual(edit_ts, updated_entries.items[0].timestamp);
+    try std.testing.expectEqualStrings("updated note", updated_entries.items[0].notes orelse "");
+    try std.testing.expectEqualStrings("img3.jpg", updated_entries.items[0].images orelse "");
+
     try deleteEntry(&database, entry_id);
 
     var after_delete = try database.getRecentEntries(10);

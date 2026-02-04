@@ -65,9 +65,11 @@ food-journal delete 42
 
 ## Commands
 
-- `add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]`
+- `add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]`
   - `meal_type` values: `breakfast`, `lunch`, `dinner`, `snack`, `other`
   - `--images` accepts a free-form string (comma-separated list recommended)
+  - `--timestamp` accepts a unix timestamp
+- `edit <id> "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]`
 - `today [--so-far | --until HH:MM]`
   - `--so-far` uses the current time as the cutoff
   - `--until HH:MM` uses a time-of-day cutoff (24h format)

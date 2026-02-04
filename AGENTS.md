@@ -129,6 +129,7 @@ Inspired by [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/do
 ## Testing Expectations
 
 - Any new CLI feature or flag must include test coverage in `src/main.zig`.
+- New CLI commands must be exercised in the `src/main.zig` CLI test block.
 - New data access or date/time logic must include a test in the defining file.
 - Update or add tests whenever behavior changes, not just when adding features.
 - Run relevant tests (at minimum `zig build test`) before pushing changes that affect behavior.

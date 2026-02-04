@@ -30,6 +30,12 @@ Optional images list (store as a single string; comma-separated works well):
 food-journal add "Salad" 320 8 24 18 6 lunch "With vinaigrette" --images "salad.jpg,plate.png"
 ```
 
+Edit an entry by id (use `recent` to find ids):
+
+```bash
+food-journal edit 12 "Updated Salad" 350 9 26 20 6 lunch "Extra dressing" --images "salad2.jpg"
+```
+
 ## Checking totals
 
 Show everything for today:
