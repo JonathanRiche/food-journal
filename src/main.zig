@@ -1,6 +1,9 @@
 const std = @import("std");
 const db = @import("db.zig");
 const models = @import("models.zig");
+const c = @cImport({
+    @cInclude("time.h");
+});
 const FoodEntry = models.FoodEntry;
 const MealType = models.MealType;
 const Database = db.Database;
@@ -397,52 +400,15 @@ fn printUsage() void {
 // Helper to convert timestamp to YYYY-MM-DD format
 fn timestampToDateString(timestamp: i64, buf: []u8) ![]const u8 {
     if (buf.len < 11) return error.BufferTooSmall;
-    // Calculate year, month, day from timestamp
-    // This is a simplified calculation
-    const days_since_epoch = @divFloor(timestamp, 86400);
+    var raw: c.time_t = @intCast(timestamp);
+    var tm: c.tm = std.mem.zeroes(c.tm);
+    const tm_ptr = c.localtime_r(&raw, &tm);
+    if (tm_ptr == null) return error.InvalidTimestamp;
 
-    // Approximate year (ignoring leap seconds and precise leap year calc for simplicity)
-    var year: i32 = 1970;
-    var remaining_days = days_since_epoch;
-
-    while (remaining_days > 0) {
-        const days_in_year: i64 = if (isLeapYear(year)) 366 else 365;
-        if (remaining_days >= days_in_year) {
-            remaining_days -= days_in_year;
-            year += 1;
-        } else {
-            break;
-        }
-    }
-
-    // Calculate month and day
-    const month_days = [_]u5{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-    var month: u5 = 1;
-
-    while (month <= 12) {
-        var days_in_month = month_days[month - 1];
-        if (month == 2 and isLeapYear(year)) {
-            days_in_month = 29;
-        }
-
-        if (remaining_days < days_in_month) {
-            break;
-        }
-
-        remaining_days -= days_in_month;
-        month += 1;
-    }
-
-    const day = remaining_days + 1;
-
-    const year_u: u16 = @intCast(year);
-    const month_u: u8 = @intCast(month);
-    const day_u: u8 = @intCast(day);
+    const year_u: u16 = @intCast(tm.tm_year + 1900);
+    const month_u: u8 = @intCast(tm.tm_mon + 1);
+    const day_u: u8 = @intCast(tm.tm_mday);
     return try std.fmt.bufPrint(buf, "{d:0>4}-{d:0>2}-{d:0>2}", .{ year_u, month_u, day_u });
-}
-
-fn isLeapYear(year: i32) bool {
-    return (@mod(year, 4) == 0 and @mod(year, 100) != 0) or (@mod(year, 400) == 0);
 }
 
 test "parseFlagValue and hasFlag" {
