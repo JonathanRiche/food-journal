@@ -36,6 +36,12 @@ Edit an entry by id (use `recent` to find ids):
 food-journal edit 12 "Updated Salad" 350 9 26 20 6 lunch "Extra dressing" --images "salad2.jpg"
 ```
 
+Upgrade to the latest release:
+
+```bash
+food-journal upgrade
+```
+
 ## Checking totals
 
 Show everything for today:

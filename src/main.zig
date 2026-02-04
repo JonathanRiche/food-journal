@@ -43,6 +43,8 @@ pub fn main() !void {
         try addEntry(&database, args);
     } else if (std.mem.eql(u8, command, "edit")) {
         try editEntry(&database, args);
+    } else if (std.mem.eql(u8, command, "upgrade") or std.mem.eql(u8, command, "--upgrade")) {
+        try upgradeCli(&database, args);
     } else if (std.mem.eql(u8, command, "today")) {
         const until_time = parseFlagValue(args, "--until") catch |err| switch (err) {
             error.MissingFlagValue => {
@@ -265,6 +267,36 @@ fn editEntry(database: *Database, args: []const []const u8) !void {
     });
 }
 
+fn upgradeCli(database: *Database, args: []const []const u8) !void {
+    const dry_run = hasFlag(args, "--dry-run");
+    const install_url = "https://raw.githubusercontent.com/JonathanRiche/food-journal/master/install-v2.sh";
+
+    if (dry_run) {
+        std.debug.print("Upgrade command (dry-run):\n  curl -fsSL {s} | bash\n", .{install_url});
+        return;
+    }
+
+    const command = "curl -fsSL https://raw.githubusercontent.com/JonathanRiche/food-journal/master/install-v2.sh | bash";
+    const argv = [_][]const u8{ "sh", "-c", command };
+
+    var child = std.process.Child.init(&argv, database.allocator);
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    var env_map = try std.process.getEnvMap(database.allocator);
+    defer env_map.deinit();
+    child.env_map = &env_map;
+
+    const term = try child.spawnAndWait();
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) return error.UpgradeFailed;
+        },
+        else => return error.UpgradeFailed,
+    }
+}
+
 fn showToday(database: *Database, until_time: ?[]const u8, so_far: bool) !void {
     // Get today's date
     const timestamp = std.time.timestamp();
@@ -387,6 +419,7 @@ fn printUsage() void {
         \\nUsage:
         \\  food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
         \\  food-journal edit <id> "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
+        \\  food-journal upgrade [--dry-run]     Update to latest release
         \\  food-journal today [--so-far | --until HH:MM]    Show today's entries
         \\  food-journal show YYYY-MM-DD [--until HH:MM]     Show entries for specific date
         \\  food-journal recent [limit]           Show recent entries (default: 10)
@@ -478,6 +511,9 @@ test "cli commands basic" {
 
     try showRecent(&database, 10);
     try searchEntries(&database, "Test");
+
+    const upgrade_args = [_][]const u8{ "food-journal", "upgrade", "--dry-run" };
+    try upgradeCli(&database, &upgrade_args);
 
     var entries = try database.getRecentEntries(10);
     defer {
