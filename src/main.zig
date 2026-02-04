@@ -86,10 +86,17 @@ pub fn main() !void {
 }
 
 fn addEntry(database: *Database, args: []const []const u8) !void {
-    // Quick add: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]
+    // Quick add: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
     const images = parseFlagValue(args, "--images") catch |err| switch (err) {
         error.MissingFlagValue => {
-            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]\n", .{});
+            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
+            return;
+        },
+        else => return err,
+    };
+    const timestamp_str = parseFlagValue(args, "--timestamp") catch |err| switch (err) {
+        error.MissingFlagValue => {
+            std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
             return;
         },
         else => return err,
@@ -100,9 +107,9 @@ fn addEntry(database: *Database, args: []const []const u8) !void {
 
     var i: usize = 2;
     while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--images")) {
+        if (std.mem.eql(u8, args[i], "--images") or std.mem.eql(u8, args[i], "--timestamp")) {
             if (i + 1 >= args.len) {
-                std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]\n", .{});
+                std.debug.print("Usage: food-journal add \"Food Name\" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]\n", .{});
                 return;
             }
             i += 1;
@@ -113,8 +120,8 @@ fn addEntry(database: *Database, args: []const []const u8) !void {
 
     if (positional.items.len < 5) {
         std.debug.print(
-            \\nUsage: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]
-            \\nExample: food-journal add "Chicken Breast" 165 31 0 3.6 0 lunch "Grilled, 100g" --images "front.jpg,back.jpg"
+            \\nUsage: food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
+            \\nExample: food-journal add "Chicken Breast" 165 31 0 3.6 0 lunch "Grilled, 100g" --images "front.jpg,back.jpg" --timestamp 1700000000
             \\nMeal types: breakfast, lunch, dinner, snack, other (default: other)
             \\n
         , .{});
@@ -131,7 +138,7 @@ fn addEntry(database: *Database, args: []const []const u8) !void {
     const notes = if (positional.items.len >= 8) positional.items[7] else null;
 
     const meal_type = MealType.fromString(meal_type_str) orelse .other;
-    const timestamp = std.time.timestamp();
+    const timestamp = if (timestamp_str) |value| try std.fmt.parseInt(i64, value, 10) else std.time.timestamp();
 
     const entry = FoodEntry{
         .id = null,
@@ -285,7 +292,7 @@ fn printUsage() void {
         \\n🍎 Food Journal - Track your meals and macros
         \\n
         \\nUsage:
-        \\  food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>]
+        \\  food-journal add "Food Name" <calories> <protein> <carbs> <fat> [fiber] [meal_type] [notes] [--images <list>] [--timestamp <unix>]
         \\  food-journal today [--so-far | --until HH:MM]    Show today's entries
         \\  food-journal show YYYY-MM-DD [--until HH:MM]     Show entries for specific date
         \\  food-journal recent [limit]           Show recent entries (default: 10)
@@ -384,6 +391,10 @@ test "cli commands basic" {
     var database = try Database.init(std.testing.allocator, ":memory:");
     defer database.close();
 
+    const now_ts = std.time.timestamp();
+    var ts_buf: [20]u8 = undefined;
+    const ts_str = try std.fmt.bufPrint(ts_buf[0..], "{d}", .{now_ts});
+
     const add_args = [_][]const u8{
         "food-journal",
         "add",
@@ -397,6 +408,8 @@ test "cli commands basic" {
         "note",
         "--images",
         "img1.jpg,img2.jpg",
+        "--timestamp",
+        ts_str,
     };
     try addEntry(&database, &add_args);
 
@@ -421,6 +434,7 @@ test "cli commands basic" {
 
     try std.testing.expectEqual(@as(usize, 1), entries.items.len);
     const entry_id = entries.items[0].id.?;
+    try std.testing.expectEqual(now_ts, entries.items[0].timestamp);
     try deleteEntry(&database, entry_id);
 
     var after_delete = try database.getRecentEntries(10);

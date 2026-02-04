@@ -125,3 +125,10 @@ Inspired by [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/do
 **Comments:**
 - Explain *why* the code exists, not *what* it does
 - Document non-obvious thresholds, timing values, protocol details
+
+## Testing Expectations
+
+- Any new CLI feature or flag must include test coverage in `src/main.zig`.
+- New data access or date/time logic must include a test in the defining file.
+- Update or add tests whenever behavior changes, not just when adding features.
+- Run relevant tests (at minimum `zig build test`) before pushing changes that affect behavior.
